@@ -7,8 +7,8 @@ import (
 
 	"github.com/jroimartin/gocui"
 	"github.com/pkg/profile"
-	"github.com/whereswaldon/arbor/client/clientio"
-	"github.com/whereswaldon/arbor/messages"
+	"github.com/whereswaldon/arbor/cmd/pergola/clientio"
+	"github.com/whereswaldon/arbor/lib/messages"
 )
 
 func quit(g *gocui.Gui, v *gocui.View) error {

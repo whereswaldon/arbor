@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/whereswaldon/arbor/messages"
+	"github.com/whereswaldon/arbor/lib/messages"
 )
 
 type Tree struct {

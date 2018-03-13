@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/gambrell/lorem"
-	messages "github.com/whereswaldon/arbor/messages"
+	messages "github.com/whereswaldon/arbor/lib/messages"
 )
 
 const replyThreshold = 0.5

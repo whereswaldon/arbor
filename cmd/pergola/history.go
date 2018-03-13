@@ -9,7 +9,7 @@ import (
 
 	"github.com/jroimartin/gocui"
 	wrap "github.com/mitchellh/go-wordwrap"
-	"github.com/whereswaldon/arbor/messages"
+	"github.com/whereswaldon/arbor/lib/messages"
 )
 
 type ThreadView struct {

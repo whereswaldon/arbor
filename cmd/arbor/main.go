@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	. "github.com/whereswaldon/arbor/messages"
+	. "github.com/whereswaldon/arbor/lib/messages"
 )
 
 func main() {
