@@ -5,53 +5,18 @@ import (
 	"io"
 	"log"
 	"strings"
-	"sync"
 
 	"github.com/jroimartin/gocui"
 	wrap "github.com/mitchellh/go-wordwrap"
+	vs "github.com/whereswaldon/arbor/cmd/pergola/view_state"
 	"github.com/whereswaldon/arbor/lib/messages"
 )
 
-type ThreadView struct {
-	Thread    []*messages.Message
-	CursorID  string
-	ViewIDs   map[string]struct{}
-	LeafID    string
-	ReplyToId string
-	sync.RWMutex
-}
-
 const ReplyView = "reply-view"
 
-func (t *ThreadView) ReplyTo(id string) {
-	t.Lock()
-	t.ReplyToId = id
-	t.Unlock()
-}
-
-func (t ThreadView) IsReplying() bool {
-	t.RLock()
-	replying := t.ReplyToId != ""
-	t.RUnlock()
-	return replying
-}
-
-func (t ThreadView) GetReplyId() string {
-	t.RLock()
-	id := t.ReplyToId
-	t.RUnlock()
-	return id
-}
-
-func (t *ThreadView) ClearReply() {
-	t.Lock()
-	t.ReplyToId = ""
-	t.Unlock()
-}
-
 type History struct {
-	*Tree
-	ThreadView
+	vs.ThreadView
+	ViewIDs  map[string]struct{}
 	Query    chan<- string
 	Outbound chan<- *messages.Message
 }
@@ -66,63 +31,21 @@ func NewList(store *Tree) (*History, <-chan string, <-chan *messages.Message) {
 	queryChan := make(chan string)
 	outChan := make(chan *messages.Message)
 	return &History{
-		Tree: store,
-		ThreadView: ThreadView{
-			LeafID:   "",
-			CursorID: "",
-			ViewIDs:  make(map[string]struct{}),
-		},
-		Query:    queryChan,
-		Outbound: outChan,
+		ThreadView: vs.New(store),
+		ViewIDs:    make(map[string]struct{}),
+		Query:      queryChan,
+		Outbound:   outChan,
 	}, queryChan, outChan
 }
 
-// UpdateLeaf sets the provided UUID as the ID of the current "leaf"
-// message within the view of the conversation *if* it is a child of
-// the previous current "leaf" message. If there is no cursor, the new
-// leaf will be set as the cursor.
-func (m *History) UpdateLeaf(id string) {
-	msg := m.Tree.Get(id)
-	m.ThreadView.Lock()
-	if msg.Parent == m.LeafID || m.LeafID == "" {
-		m.LeafID = msg.UUID
-	}
-	if m.CursorID == "" {
-		m.CursorID = msg.UUID
-	}
-	m.ThreadView.Unlock()
-}
-
 func (h *History) destroyOldViews(ui *gocui.Gui) {
-	h.ThreadView.Lock()
 	// destroy old views
 	for id := range h.ViewIDs {
 		ui.DeleteView(id)
 	}
 	// reset ids
 	h.ViewIDs = make(map[string]struct{})
-	h.ThreadView.Unlock()
 
-}
-
-func (h *History) refreshThread() []*messages.Message {
-	h.ThreadView.RLock()
-	items, query := h.Tree.GetItems(h.ThreadView.LeafID, 1024)
-	h.ThreadView.RUnlock()
-	h.ThreadView.Lock()
-	h.ThreadView.Thread = items // save the computed ancestry of the current thread
-	h.ThreadView.Unlock()
-	if query != "" {
-		log.Println("Querying for message: ", query)
-		h.Query <- query // query for any unknown message in the ancestry
-	}
-	return items
-}
-
-func (h *History) Cursor() string {
-	h.ThreadView.RLock()
-	defer h.ThreadView.RUnlock()
-	return h.ThreadView.CursorID
 }
 
 // Layout builds a message history in the provided UI
@@ -132,7 +55,10 @@ func (m *History) Layout(ui *gocui.Gui) error {
 	maxX, maxY := ui.Size()
 
 	// get the latest history
-	thread := m.refreshThread()
+	query := m.Refresh()
+	if query != "" {
+		m.Query <- query
+	}
 	totalY := maxY // how much vertical space is left for drawing messages
 
 	cursorY := (totalY - 2) / 2
@@ -147,7 +73,8 @@ func (m *History) Layout(ui *gocui.Gui) error {
 		return err
 	}
 
-	currentIdxBelow := indexOfMessageId(cursorId, thread)
+	thread := m.Ancestry()
+	currentIdxBelow := vs.IndexOfMessageId(cursorId, thread)
 	currentIdxAbove := currentIdxBelow
 
 	lowerBound := cursorY + cursorHeight
@@ -183,12 +110,12 @@ const down Direction = 1
 func (h *History) drawView(x, y, w int, dir Direction, isCursor bool, id string, ui *gocui.Gui) (error, int) {
 	const borderHeight = 2
 	const gutterWidth = 4
-	msg := h.Tree.Get(id)
+	msg := h.ThreadView.Get(id)
 	if msg == nil {
 		log.Println("accessed nil message with id:", id)
 	}
-	seen := h.Tree.Seen(id)
-	numSiblings := len(h.Tree.Children(msg.Parent)) - 1
+	seen := h.Seen(id)
+	numSiblings := len(h.Children(msg.Parent)) - 1
 	contents := wrap.WrapString(msg.Content, uint(w-gutterWidth-1))
 	height := strings.Count(contents, "\n") + borderHeight
 
@@ -213,9 +140,7 @@ func (h *History) drawView(x, y, w int, dir Direction, isCursor bool, id string,
 				return err, 0
 			}
 			fmt.Fprintf(v, "%d", numSiblings)
-			h.ThreadView.Lock()
-			h.ThreadView.ViewIDs[name] = struct{}{}
-			h.ThreadView.Unlock()
+			h.ViewIDs[name] = struct{}{}
 		}
 	}
 
@@ -229,16 +154,14 @@ func (h *History) drawView(x, y, w int, dir Direction, isCursor bool, id string,
 		fmt.Fprint(v, contents)
 		if isCursor {
 			ui.SetCurrentView(id)
-			h.Tree.MarkSeen(id)
+			h.MarkSeen(id)
 			seen = true
 		}
 		if !seen {
 			v.BgColor = gocui.ColorWhite
 			v.FgColor = gocui.ColorBlack
 		}
-		h.ThreadView.Lock()
-		h.ThreadView.ViewIDs[id] = struct{}{}
-		h.ThreadView.Unlock()
+		h.ViewIDs[id] = struct{}{}
 
 	}
 	return nil, height + 1
@@ -261,10 +184,7 @@ func (his *History) drawReplyView(x, y, w, h int, ui *gocui.Gui) error {
 }
 
 func (m *History) BeginReply(g *gocui.Gui, v *gocui.View) error {
-	m.ThreadView.Lock()
-	id := m.CursorID
-	m.ThreadView.Unlock()
-	m.ReplyTo(id)
+	m.ReplyTo(m.Cursor())
 	return nil
 }
 
@@ -295,25 +215,9 @@ func (m *History) CursorUp(g *gocui.Gui, v *gocui.View) error {
 	if m.IsReplying() {
 		return nil
 	}
-	m.ThreadView.Lock()
-	id := m.CursorID
-	m.ThreadView.Unlock()
-	msg := m.Get(id)
-	if msg == nil {
-		log.Println("Error fetching cursor message: %s", m.CursorID)
-		return nil
-	} else if msg.Parent == "" {
-		log.Println("Cannot move cursor up, nil parent for message: %v", msg)
-		return nil
-	} else if m.Get(msg.Parent) == nil {
-		log.Println("Refusing to move cursor onto nonlocal message with id", msg.Parent)
-		return nil
-	} else {
-		m.ThreadView.Lock()
-		m.CursorID = msg.Parent
-		m.ThreadView.Unlock()
-		return nil
-	}
+
+	m.MoveCursorTowardRoot()
+	return nil
 }
 
 func (m *History) CursorRight(g *gocui.Gui, v *gocui.View) error {
@@ -333,12 +237,10 @@ func (m *History) cursorSide(s side, g *gocui.Gui, v *gocui.View) error {
 	if m.IsReplying() {
 		return nil
 	}
-	m.ThreadView.Lock()
-	id := m.CursorID
-	m.ThreadView.Unlock()
-	msg := m.Get(id)
+	id := m.Cursor()
+	msg := m.ThreadView.Get(id)
 	if msg == nil {
-		log.Println("Error fetching cursor message: %s", m.CursorID)
+		log.Println("Error fetching cursor message: %s", id)
 		return nil
 	} else if msg.Parent == "" {
 		log.Println("Cannot move cursor up, nil parent for message: %v", msg)
@@ -356,11 +258,8 @@ func (m *History) cursorSide(s side, g *gocui.Gui, v *gocui.View) error {
 		}
 		newCursor := siblings[index]
 		log.Printf("Selecting new cursor (old %s) as %s from %v\n", id, newCursor, siblings)
-		m.ThreadView.Lock()
-		m.ThreadView.LeafID = m.Tree.Leaf(newCursor)
-		m.ThreadView.CursorID = newCursor
-		log.Println("Selected leaf :", m.ThreadView.LeafID)
-		m.ThreadView.Unlock()
+		m.FindNewLeaf(newCursor)
+		log.Println("Selected leaf :", m.LeafID)
 		return nil
 	}
 }
@@ -369,39 +268,13 @@ func (m *History) CursorDown(g *gocui.Gui, v *gocui.View) error {
 	if m.IsReplying() {
 		return nil
 	}
-	m.ThreadView.Lock()
-	id := m.CursorID
-	thread := m.Thread
-	m.ThreadView.Unlock()
-	msg := m.Get(id)
-	if msg == nil {
-		log.Println("Error fetching cursor message: %s", m.CursorID)
-		return nil
-	}
-	prev := indexOfMessageId(id, thread) - 1
-
-	if prev >= 0 {
-		m.ThreadView.Lock()
-		m.CursorID = thread[prev].UUID
-		m.ThreadView.Unlock()
-	} else {
-		log.Println("No previous message")
-	}
+	m.MoveCursorTowardLeaf()
 	return nil
 }
 
 func indexOf(element string, inContainer []string) int {
 	for i, e := range inContainer {
 		if e == element {
-			return i
-		}
-	}
-	return -1
-}
-
-func indexOfMessageId(element string, inContainer []*messages.Message) int {
-	for i, e := range inContainer {
-		if e.UUID == element {
 			return i
 		}
 	}
