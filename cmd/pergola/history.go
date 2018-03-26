@@ -187,6 +187,7 @@ func (h *History) drawView(x, y, w int, dir Direction, isCursor bool, id string,
 	if msg == nil {
 		log.Println("accessed nil message with id:", id)
 	}
+	seen := h.Tree.Seen(id)
 	numSiblings := len(h.Tree.Children(msg.Parent)) - 1
 	contents := wrap.WrapString(msg.Content, uint(w-gutterWidth-1))
 	height := strings.Count(contents, "\n") + borderHeight
@@ -228,6 +229,12 @@ func (h *History) drawView(x, y, w int, dir Direction, isCursor bool, id string,
 		fmt.Fprint(v, contents)
 		if isCursor {
 			ui.SetCurrentView(id)
+			h.Tree.MarkSeen(id)
+			seen = true
+		}
+		if !seen {
+			v.BgColor = gocui.ColorWhite
+			v.FgColor = gocui.ColorBlack
 		}
 		h.ThreadView.Lock()
 		h.ThreadView.ViewIDs[id] = struct{}{}

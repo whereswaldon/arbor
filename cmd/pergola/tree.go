@@ -13,10 +13,28 @@ type Tree struct {
 	// ChildrenMap is a map from a message's UUID to a slide of UUIDs for each
 	// child message of that message
 	ChildrenMap map[string][]string
+	SeenSet     map[string]struct{}
 }
 
 func NewTree(s *messages.Store) *Tree {
-	return &Tree{Store: s, ChildrenMap: make(map[string][]string)}
+	return &Tree{
+		Store:       s,
+		ChildrenMap: make(map[string][]string),
+		SeenSet:     make(map[string]struct{}),
+	}
+}
+
+func (t *Tree) Seen(messageId string) bool {
+	t.RLock()
+	_, found := t.SeenSet[messageId]
+	t.RUnlock()
+	return found
+}
+
+func (t *Tree) MarkSeen(messageId string) {
+	t.Lock()
+	t.SeenSet[messageId] = struct{}{}
+	t.Unlock()
 }
 
 // Add stores the message and its relationship with its parent within the message
