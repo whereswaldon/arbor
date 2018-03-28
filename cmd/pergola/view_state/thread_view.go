@@ -103,9 +103,10 @@ func (t *ThreadView) MoveCursorTowardLeaf() {
 }
 
 func (t *ThreadView) MoveCursorTowardRoot() {
+	log.Println("Attempting to move toward root")
+	msg := t.Get(t.Cursor())
 	t.Lock()
 	defer t.Unlock()
-	msg := t.Get(t.Cursor())
 	if msg == nil {
 		log.Println("Error fetching cursor message: %s", t.CursorID)
 	} else if msg.Parent == "" {
@@ -113,6 +114,7 @@ func (t *ThreadView) MoveCursorTowardRoot() {
 	} else if t.Get(msg.Parent) == nil {
 		log.Println("Refusing to move cursor onto nonlocal message with id", msg.Parent)
 	} else {
+		log.Println("Setting CursorID to ", msg.Parent)
 		t.CursorID = msg.Parent
 	}
 }
