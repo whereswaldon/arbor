@@ -119,10 +119,11 @@ func (t *ThreadView) MoveCursorTowardRoot() {
 	}
 }
 
-func (t *ThreadView) FindNewLeaf(cursor string) {
+func (t *ThreadView) ViewSubtreeOf(cursor string) {
 	t.Lock()
 	defer t.Unlock()
 	t.LeafID = t.Leaf(cursor)
+	t.CursorID = cursor
 }
 
 func (t *ThreadView) Ancestry() []*messages.Message {

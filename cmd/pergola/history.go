@@ -258,7 +258,7 @@ func (m *History) cursorSide(s side, g *gocui.Gui, v *gocui.View) error {
 		}
 		newCursor := siblings[index]
 		log.Printf("Selecting new cursor (old %s) as %s from %v\n", id, newCursor, siblings)
-		m.FindNewLeaf(newCursor)
+		m.ViewSubtreeOf(newCursor)
 		log.Println("Selected leaf :", m.LeafID)
 		return nil
 	}
