@@ -1,11 +1,8 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"net"
-	"time"
 
 	. "github.com/whereswaldon/arbor/lib/messages"
 )
@@ -13,69 +10,67 @@ import (
 func main() {
 	messages := NewStore()
 	broadcaster := NewBroadcaster()
+	recents := NewRecents(10)
 	//serve
 	listener, err := net.Listen("tcp", ":7777")
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Server listening on localhost:7777")
-	go func() {
-		m, err := NewMessage("Root message")
-		if err != nil {
-			log.Println(err)
-		}
-		log.Println("Root message UUID is " + m.UUID)
-		messages.Add(m)
-		for t := range time.NewTicker(time.Second).C {
-			m, err = m.Reply("It is now " + t.String())
-			if err != nil {
-				log.Println(err)
-			}
-			a := &ArborMessage{
-				Type:    NEW_MESSAGE,
-				Message: m,
-			}
-			go handleNewMessage(a, messages, broadcaster)
-		}
-	}()
+	m, err := NewMessage("Root message")
+	err = m.AssignID()
+	if err != nil {
+		log.Println(err)
+	}
+	messages.Add(m)
+	toWelcome := make(chan chan<- *ArborMessage)
+	go handleWelcomes(m.UUID, recents, toWelcome)
+	log.Println("Root message UUID is " + m.UUID)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Println(err)
 		}
-		broadcaster.Add(conn)
-		go handleClient(conn, messages, broadcaster)
+		fromClient := MakeMessageReader(conn)
+		toClient := MakeMessageWriter(conn)
+		broadcaster.Add(toClient)
+		go handleClient(fromClient, toClient, recents, messages, broadcaster)
+		toWelcome <- toClient
 	}
 }
 
-func handleClient(conn io.ReadWriteCloser, store *Store, broadcaster *Broadcaster) {
-	data := make([]byte, 1024)
-	for {
-		n, err := conn.Read(data)
-		if err != nil {
-			log.Println(err)
-			return
+func handleWelcomes(rootId string, recents *RecentList, toWelcome chan chan<- *ArborMessage) {
+	for client := range toWelcome {
+		msg := ArborMessage{
+			Type:  WELCOME,
+			Root:  rootId,
+			Major: 0,
+			Minor: 1,
 		}
-		a := &ArborMessage{}
-		err = json.Unmarshal(data[:n], a)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		switch a.Type {
+		msg.Recent = recents.Data()
+
+		client <- &msg
+		log.Println("Welcome message: ", msg)
+
+	}
+}
+
+func handleClient(from <-chan *ArborMessage, to chan<- *ArborMessage, recents *RecentList, store *Store, broadcaster *Broadcaster) {
+	for message := range from {
+		switch message.Type {
 		case QUERY:
-			log.Println("Handling query for " + a.Message.UUID)
-			go handleQuery(a, conn, store)
+			log.Println("Handling query for " + message.Message.UUID)
+			go handleQuery(message, to, store)
 		case NEW_MESSAGE:
-			go handleNewMessage(a, store, broadcaster)
+			go handleNewMessage(message, recents, store, broadcaster)
 		default:
-			log.Println("Unrecognized message type", a.Type)
+			log.Println("Unrecognized message type", message.Type)
 			continue
 		}
 	}
 }
 
-func handleQuery(msg *ArborMessage, conn io.ReadWriteCloser, store *Store) {
+func handleQuery(msg *ArborMessage, out chan<- *ArborMessage, store *Store) {
 	result := store.Get(msg.Message.UUID)
 	if result == nil {
 		log.Println("Unable to find queried id: " + msg.Message.UUID)
@@ -83,32 +78,16 @@ func handleQuery(msg *ArborMessage, conn io.ReadWriteCloser, store *Store) {
 	}
 	msg.Message = result
 	msg.Type = NEW_MESSAGE
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Println("Error marshalling response", err)
-		return
-	}
-	_, err = conn.Write(data)
-	if err != nil {
-		log.Println("Error sending response", err)
-		return
-	}
-	log.Println("Query response: ", string(data))
+	out <- msg
+	log.Println("Query response: ", msg)
 }
 
-func handleNewMessage(msg *ArborMessage, store *Store, broadcaster *Broadcaster) {
-	if msg.Message.UUID == "" {
-		serverMessage, err := NewMessage(msg.Message.Content)
-		if err != nil {
-			log.Println("Error creating new message", err)
-		}
-		serverMessage.Parent = msg.Parent
-		msg.Message = serverMessage
-	}
-	store.Add(msg.Message)
-	j, err := json.Marshal(msg)
+func handleNewMessage(msg *ArborMessage, recents *RecentList, store *Store, broadcaster *Broadcaster) {
+	err := msg.Message.AssignID()
 	if err != nil {
-		log.Println(err)
+		log.Println("Error creating new message", err)
 	}
-	broadcaster.Send(j)
+	recents.Add(msg.Message.UUID)
+	store.Add(msg.Message)
+	broadcaster.Send(msg)
 }

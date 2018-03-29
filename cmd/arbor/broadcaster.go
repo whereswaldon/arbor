@@ -1,41 +1,46 @@
 package main
 
 import (
-	"io"
 	"log"
 	"sync"
+
+	"github.com/whereswaldon/arbor/lib/messages"
 )
 
 type Broadcaster struct {
 	sync.RWMutex
-	clients map[io.ReadWriteCloser]struct{}
+	clients map[chan<- *messages.ArborMessage]struct{}
 }
 
 func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
-		clients: make(map[io.ReadWriteCloser]struct{}),
+		clients: make(map[chan<- *messages.ArborMessage]struct{}),
 	}
 }
 
-func (b *Broadcaster) Send(data []byte) {
+func (b *Broadcaster) Send(message *messages.ArborMessage) {
 	b.RLock()
 	for client := range b.clients {
-		_, err := client.Write(data)
-		if err != nil {
-			log.Println("err writing to client, removing", err)
-			go b.remove(client)
-		}
+		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					log.Println("Error sending to client, removing: ", err)
+					go b.remove(client)
+				}
+			}()
+			client <- message
+		}()
 	}
 	b.RUnlock()
 }
 
-func (b *Broadcaster) remove(client io.ReadWriteCloser) {
+func (b *Broadcaster) remove(client chan<- *messages.ArborMessage) {
 	b.Lock()
 	delete(b.clients, client)
 	b.Unlock()
 }
 
-func (b *Broadcaster) Add(client io.ReadWriteCloser) {
+func (b *Broadcaster) Add(client chan<- *messages.ArborMessage) {
 	b.Lock()
 	b.clients[client] = struct{}{}
 	b.Unlock()
