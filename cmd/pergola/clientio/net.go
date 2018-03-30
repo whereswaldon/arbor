@@ -10,7 +10,7 @@ import (
 
 // HandleConn reads from the provided connection and writes new messages to the msgs
 // channel as they come in.
-func HandleNewMessages(conn io.ReadWriteCloser, msgs chan<- *messages.Message) {
+func HandleNewMessages(conn io.ReadWriteCloser, msgs chan<- *messages.Message, welcomes chan<- *messages.ArborMessage) {
 	data := make([]byte, 1024)
 	defer close(msgs)
 	for {
@@ -31,6 +31,10 @@ func HandleNewMessages(conn io.ReadWriteCloser, msgs chan<- *messages.Message) {
 			continue
 		}
 		switch a.Type {
+		case messages.WELCOME:
+			welcomes <- a
+			close(welcomes)
+			welcomes = nil
 		case messages.NEW_MESSAGE:
 			// add the new message
 			msgs <- a.Message

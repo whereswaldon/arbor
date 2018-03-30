@@ -40,13 +40,26 @@ func main() {
 		log.Println("Unable to connect", err)
 		return
 	}
-	go clientio.HandleNewMessages(conn, msgs)
+	welcomes := make(chan *messages.ArborMessage)
+	go clientio.HandleNewMessages(conn, msgs, welcomes)
 	go func() {
 		for newMsg := range msgs {
 			layoutManager.Add(newMsg)
 			layoutManager.UpdateLeaf(newMsg.UUID)
 			//redraw
 			ui.Update(func(*gocui.Gui) error { return nil })
+		}
+	}()
+
+	go func() {
+		for message := range welcomes {
+			rootID := message.Root
+			recents := message.Recent
+			queries <- rootID
+			for _, recentID := range recents {
+				queries <- recentID
+			}
+
 		}
 	}()
 	go clientio.HandleRequests(conn, queries)

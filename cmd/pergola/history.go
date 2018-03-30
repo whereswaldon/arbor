@@ -27,7 +27,7 @@ type History struct {
 // channel of queries, and a readonly channel of new messages to be sent
 // to the sever. The queries are message UUIDs that
 // the local store has requested the message contents for.
-func NewList(store *Tree) (*History, <-chan string, <-chan *messages.Message) {
+func NewList(store *Tree) (*History, chan string, <-chan *messages.Message) {
 	queryChan := make(chan string)
 	outChan := make(chan *messages.Message)
 	return &History{
