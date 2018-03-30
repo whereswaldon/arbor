@@ -50,7 +50,7 @@ func handleWelcomes(rootId string, recents *RecentList, toWelcome chan chan<- *A
 		msg.Recent = recents.Data()
 
 		client <- &msg
-		log.Println("Welcome message: ", msg)
+		log.Println("Welcome message: ", msg.String())
 
 	}
 }
@@ -79,7 +79,7 @@ func handleQuery(msg *ArborMessage, out chan<- *ArborMessage, store *Store) {
 	msg.Message = result
 	msg.Type = NEW_MESSAGE
 	out <- msg
-	log.Println("Query response: ", msg)
+	log.Println("Query response: ", msg.String())
 }
 
 func handleNewMessage(msg *ArborMessage, recents *RecentList, store *Store, broadcaster *Broadcaster) {
