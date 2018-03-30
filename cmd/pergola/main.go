@@ -64,8 +64,7 @@ func main() {
 
 		}
 	}()
-	go clientio.HandleRequests(conn, queries)
-	go clientio.HandleOutbound(conn, outbound)
+	go clientio.HandleRequests(conn, queries, outbound)
 
 	type keybinding struct {
 		viewId  string

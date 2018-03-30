@@ -1,7 +1,6 @@
 package clientio
 
 import (
-	"encoding/json"
 	"io"
 	"log"
 
@@ -11,90 +10,45 @@ import (
 // HandleConn reads from the provided connection and writes new messages to the msgs
 // channel as they come in.
 func HandleNewMessages(conn io.ReadWriteCloser, msgs chan<- *messages.Message, welcomes chan<- *messages.ArborMessage) {
-	data := make([]byte, 1024)
+	readMessages := messages.MakeMessageReader(conn)
 	defer close(msgs)
-	for {
-		n, err := conn.Read(data)
-		log.Println("read ", n, " bytes")
-		if err != nil {
-			if err == io.EOF {
-				log.Println("Connection to server closed, reader shutting down", err)
-				break
-			}
-			log.Println("unable to read message: ", err)
-			return
-		}
-		a := &messages.ArborMessage{}
-		err = json.Unmarshal(data[:n], a)
-		if err != nil {
-			log.Println("unable to decode message: ", err, string(data))
-			continue
-		}
-		switch a.Type {
+	for fromServer := range readMessages {
+		switch fromServer.Type {
 		case messages.WELCOME:
-			welcomes <- a
+			welcomes <- fromServer
 			close(welcomes)
 			welcomes = nil
 		case messages.NEW_MESSAGE:
 			// add the new message
-			msgs <- a.Message
+			msgs <- fromServer.Message
 		default:
-			log.Println("Unknown message type: ", string(data))
+			log.Println("Unknown message type: ", fromServer.String)
 			continue
 		}
 	}
 }
 
-// HandleRequests reads from the requestedIds channel and asks the server to
-// send the message details for the messages corresponding to each UUID that
-// it receives over the channel.
-func HandleRequests(conn io.ReadWriteCloser, requestedIds <-chan string) {
-	for id := range requestedIds {
-		a := &messages.ArborMessage{
-			Type: messages.QUERY,
-			Message: &messages.Message{
-				UUID: id,
-			},
-		}
-		data, err := json.Marshal(a)
-		if err != nil {
-			log.Println("Failed to marshal request", err)
-			continue
-		}
-		_, err = conn.Write(data)
-		if err != nil {
-			if err == io.EOF {
-				log.Println("Connection to server closed, writer shutting down", err)
-				break
+// HandleRequests reads from the requestedIds and outbound channels and sends messages
+// to the server. Any message id received on the requestedIds channel will be queried
+// and any message received on the outbound channel will be sent as a new message
+func HandleRequests(conn io.ReadWriteCloser, requestedIds <-chan string, outbund <-chan *messages.Message) {
+	toServer := messages.MakeMessageWriter(conn)
+	for {
+		select {
+		case queryId := <-requestedIds:
+			a := &messages.ArborMessage{
+				Type: messages.QUERY,
+				Message: &messages.Message{
+					UUID: queryId,
+				},
 			}
-			log.Println("Failed to write request", err)
-			continue
-		}
-	}
-}
-
-// HandleOutbound reads from a channel of message structs and sends each one as a
-// new message to the server
-func HandleOutbound(conn io.ReadWriteCloser, outbound <-chan *messages.Message) {
-	for out := range outbound {
-		a := &messages.ArborMessage{
-			Type:    messages.NEW_MESSAGE,
-			Message: out,
-		}
-		data, err := json.Marshal(a)
-		if err != nil {
-			log.Println("Failed to marshal request", err)
-			continue
-		}
-		log.Println("Sending message: ", string(data))
-		_, err = conn.Write(data)
-		if err != nil {
-			if err == io.EOF {
-				log.Println("Connection to server closed, writer shutting down", err)
-				break
+			toServer <- a
+		case newMesg := <-outbund:
+			a := &messages.ArborMessage{
+				Type:    messages.NEW_MESSAGE,
+				Message: newMesg,
 			}
-			log.Println("Failed to write request", err)
-			continue
+			toServer <- a
 		}
 	}
 }
