@@ -57,7 +57,9 @@ func main() {
 			recents := message.Recent
 			queries <- rootID
 			for _, recentID := range recents {
-				queries <- recentID
+				if recentID != "" {
+					queries <- recentID
+				}
 			}
 
 		}
