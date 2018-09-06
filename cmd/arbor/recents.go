@@ -1,34 +1,45 @@
 package main
 
-import (
-	"sync"
-)
-
 type RecentList struct {
-	Recents []string
+	recents []string
 	index   int
-	sync.RWMutex
+	add     chan string
+	reqData chan struct{}
+	data    chan []string
 }
 
 func NewRecents(size int) *RecentList {
-	return &RecentList{
-		Recents: make([]string, size),
+	r := &RecentList{
+		recents: make([]string, size),
+		add:     make(chan string),
+		reqData: make(chan struct{}),
+		data:    make(chan []string),
 		index:   0,
+	}
+	go r.dispatch()
+	return r
+}
+
+func (r *RecentList) dispatch() {
+	for {
+		select {
+		case id := <-r.add:
+			r.recents[r.index] = id
+			r.index++
+			r.index %= len(r.recents)
+		case <-r.reqData:
+			res := make([]string, len(r.recents))
+			copy(res, r.recents)
+			r.data <- res
+		}
 	}
 }
 
 func (r *RecentList) Add(id string) {
-	r.Lock()
-	defer r.Unlock()
-	r.Recents[r.index] = id
-	r.index++
-	r.index %= len(r.Recents)
+	r.add <- id
 }
 
 func (r *RecentList) Data() []string {
-	r.RLock()
-	defer r.RUnlock()
-	res := make([]string, len(r.Recents))
-	copy(res, r.Recents)
-	return res
+	r.reqData <- struct{}{}
+	return <-r.data
 }
