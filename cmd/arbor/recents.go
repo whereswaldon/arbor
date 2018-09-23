@@ -3,6 +3,7 @@ package main
 type RecentList struct {
 	recents []string
 	index   int
+	full    bool
 	add     chan string
 	reqData chan struct{}
 	data    chan []string
@@ -14,6 +15,7 @@ func NewRecents(size int) *RecentList {
 		add:     make(chan string),
 		reqData: make(chan struct{}),
 		data:    make(chan []string),
+		full:    false,
 		index:   0,
 	}
 	go r.dispatch()
@@ -26,10 +28,17 @@ func (r *RecentList) dispatch() {
 		case id := <-r.add:
 			r.recents[r.index] = id
 			r.index++
+			if !r.full && r.index == len(r.recents) {
+    				r.full = true
+			}
 			r.index %= len(r.recents)
 		case <-r.reqData:
-			res := make([]string, len(r.recents))
-			copy(res, r.recents)
+    			buflen := r.index
+    			if r.full {
+        			buflen = len(r.recents)
+    			}
+    			res := make([]string, buflen)
+    			copy(res, r.recents)
 			r.data <- res
 		}
 	}
