@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 	"strings"
 
 	"github.com/jroimartin/gocui"
@@ -203,6 +204,8 @@ func (m *History) SendReply(g *gocui.Gui, v *gocui.View) error {
 	g.DeleteView(ReplyView)
 	m.ClearReply()
 	msg := &messages.Message{
+    		Username: "pergola",
+    		Timestamp: time.Now().Unix(),
 		Parent:  id,
 		Content: string(data[:n]),
 	}
