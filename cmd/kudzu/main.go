@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"time"
 
 	"github.com/gambrell/lorem"
 	messages "github.com/whereswaldon/arbor/lib/messages"
@@ -52,6 +53,8 @@ func main() {
 				a := &messages.ArborMessage{
 					Type: messages.NEW_MESSAGE,
 					Message: &messages.Message{
+    						Username: "kudzu",
+    						Timestamp: time.Now().Unix(),
 						Parent:  a.Message.UUID,
 						Content: fmt.Sprintf("%d", replyCounter) + lorem.Lorem(rand.Intn(128), "words", false),
 					},
