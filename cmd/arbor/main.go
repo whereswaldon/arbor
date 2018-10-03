@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net"
+	"os"
 
 	. "github.com/whereswaldon/arbor/lib/messages"
 )
@@ -11,12 +12,16 @@ func main() {
 	messages := NewStore()
 	broadcaster := NewBroadcaster()
 	recents := NewRecents(10)
+	address := ":7777"
 	//serve
-	listener, err := net.Listen("tcp", ":7777")
+	if (len(os.Args) > 1) {
+    		address = os.Args[1]
+	}
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Server listening on localhost:7777")
+	log.Println("Server listening on", address)
 	m, err := NewMessage("Root message")
 	err = m.AssignID()
 	if err != nil {
